@@ -1,0 +1,11 @@
+[project]
+name = "moltbook-crawler"
+version = "0.1.0"
+description = "Async crawler for moltbook.com - academic research on AI agent social networks"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "aiofiles>=25.1.0",
+    "aiohttp>=3.13.3",
+    "tqdm>=4.67.3",
+]
