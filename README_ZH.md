@@ -79,6 +79,14 @@ uv run python main.py discover --concurrency 8 --delay 0.2
 | `agents.jsonl` | Agent 资料 |
 | `social_edges.jsonl` | 相似 agent 边 |
 | `data/.state/` | 断点 cursor/offset/todo |
+| `crawl_failures.jsonl` | 失败请求明细（URL/状态码/是否走代理） |
+
+### 代理与日志
+
+- **默认直连**，不加 `--proxy` 不会用代理
+- 加 `--proxy` 为 fallback：直连失败或 429 才切代理
+- 每个爬虫结束会打印 `Mode: direct/proxy` 和 `Failures: N`
+- 失败详情追加到 `data/crawl_failures.jsonl`
 
 ## 推荐工作流
 

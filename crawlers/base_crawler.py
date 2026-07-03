@@ -12,6 +12,7 @@ from pathlib import Path
 import aiohttp
 
 from . import config
+from .failure_log import FailureLog
 from .http_client import HttpClient
 from .proxy_pool import DEFAULT_RESULTS_DIR, load_pool_from_results
 from .storage import JsonlStore
@@ -44,6 +45,7 @@ class AsyncCrawler(ABC):
             self.delay = delay if delay is not None else config.REQUEST_DELAY
 
         self.store = JsonlStore(data_dir)
+        self.failure_log = FailureLog(data_dir, crawler=self.__class__.__name__)
         self.session: aiohttp.ClientSession | None = None
         self.http: HttpClient | None = None
         self.proxy_pool = None
@@ -62,6 +64,7 @@ class AsyncCrawler(ABC):
         self._start_time = time.time()
 
         if self.use_proxy:
+            print(f"[*] Proxy mode: {self.proxy_mode}")
             self.proxy_pool = load_pool_from_results(
                 self.proxy_results_dir,
                 top_n_sources=config.PROXY_TOP_SOURCES,
@@ -82,6 +85,7 @@ class AsyncCrawler(ABC):
             proxy_pool=self.proxy_pool,
             proxy_mode=self.proxy_mode,  # type: ignore[arg-type]
             shutdown_check=lambda: self._shutdown,
+            failure_log=self.failure_log,
         )
 
         loop = asyncio.get_event_loop()
@@ -121,6 +125,8 @@ class AsyncCrawler(ABC):
         print(f"  Errors:    {self.http.error_count}")
         print(f"  Time:      {elapsed:.1f}s")
         print(f"  RPS:       {self.http.elapsed_rps(self._start_time):.1f}")
+        print(f"  Mode:      {'proxy/' + self.proxy_mode if self.use_proxy else 'direct'}")
+        self.failure_log.print_session_summary()
         if self.use_proxy:
             print(f"  Direct OK:   {self.http.direct_hits}")
             print(f"  Via proxy:   {self.http.proxy_hits}")

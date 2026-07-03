@@ -145,7 +145,9 @@ def main():
     }
 
     if args.proxy:
-        print(f"[*] Proxy fallback ON → {args.proxy_results}\n")
+        print(f"[*] Proxy enabled (mode={args.proxy_mode}) → {args.proxy_results}\n")
+    else:
+        print("[*] Direct connection (add --proxy for 429 fallback)\n")
 
     try:
         asyncio.run(runners[args.command]())

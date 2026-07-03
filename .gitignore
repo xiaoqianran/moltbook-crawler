@@ -11,6 +11,8 @@ wheels/
 
 # Crawl output (keep samples optional)
 data/.state/
+data/crawl_failures.jsonl
+data/test_run/
 
 # proxy-hunter runtime cache (submodule)
 proxy-hunter/source_tests/.cache/
