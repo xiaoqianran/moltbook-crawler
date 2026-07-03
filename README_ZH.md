@@ -41,13 +41,13 @@ moltbook.com 学术研究爬虫。内置 **proxy-hunter** 子模块（git submod
 ### 高质量简体中文翻译
 
 ```bash
-# 配置 OpenAI 兼容 API（任选其一）
-export MOLTBOOK_TRANSLATE_API_KEY=sk-...
-# 或 export OPENAI_API_KEY=sk-...
+# 复制 .env.example → .env，填入 API Key
+cp .env.example .env
 
-# 可选
-export MOLTBOOK_TRANSLATE_BASE_URL=https://api.openai.com/v1
-export MOLTBOOK_TRANSLATE_MODEL=gpt-4o-mini
+# 默认：NVIDIA NIM qwen3-next-80b @ newapi-jp2.xiaoqianran.xyz
+# MOLTBOOK_TRANSLATE_BASE_URL=https://newapi-jp2.xiaoqianran.xyz/v1
+# MOLTBOOK_TRANSLATE_MODEL=qwen/qwen3-next-80b-a3b-instruct
+# MOLTBOOK_TRANSLATE_CONCURRENCY=16   # 19 号池，可调到 16~19
 
 # 单独翻译待处理帖子
 uv run python main.py translate --limit 50

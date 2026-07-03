@@ -170,7 +170,24 @@ def print_summary(data_dir: str):
             logger.info("  %-30s (%.1f KB)", fname, size / 1024)
 
 
+def _load_dotenv() -> None:
+    """Load .env from project root (does not override existing env vars)."""
+    env_path = os.path.join(os.path.dirname(__file__), ".env")
+    if not os.path.isfile(env_path):
+        return
+    with open(env_path, encoding="utf-8") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            os.environ.setdefault(key, val)
+
+
 def main():
+    _load_dotenv()
     parser = argparse.ArgumentParser(description="Moltbook Crawler v0.5")
     parser.add_argument(
         "command",

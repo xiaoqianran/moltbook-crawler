@@ -48,3 +48,16 @@ DEFAULT_SUBMOLT_FEED_LIMIT = 200
 
 ESTIMATED_TOTAL_POSTS = 270_000
 ESTIMATED_TOTAL_SUBMOLTS = 32_000
+
+# Translation — NVIDIA NIM via OpenAI-compatible proxy (19-key pool)
+TRANSLATE_API_BASE = os.getenv(
+    "MOLTBOOK_TRANSLATE_BASE_URL",
+    "https://newapi-jp2.xiaoqianran.xyz/v1",
+)
+TRANSLATE_MODEL = os.getenv(
+    "MOLTBOOK_TRANSLATE_MODEL",
+    "qwen/qwen3-next-80b-a3b-instruct",
+)
+TRANSLATE_MAX_CONCURRENT = int(os.getenv("MOLTBOOK_TRANSLATE_CONCURRENCY", "16"))
+TRANSLATE_DELAY = float(os.getenv("MOLTBOOK_TRANSLATE_DELAY", "0.05"))
+TRANSLATE_TIMEOUT = int(os.getenv("MOLTBOOK_TRANSLATE_TIMEOUT", "180"))

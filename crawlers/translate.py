@@ -8,12 +8,13 @@ import re
 
 import aiohttp
 
+from . import config
 from .logging_config import get_logger
 
 logger = get_logger("translate")
 
-# Mostly CJK → likely already Chinese
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+_JSON_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 
 SYSTEM_PROMPT = """你是专业科技/学术译者。将用户给出的帖子标题和正文翻译成**高质量简体中文**。
 要求：
@@ -31,6 +32,11 @@ def is_mostly_chinese(text: str) -> bool:
     return cjk / max(len(text), 1) > 0.3
 
 
+def _parse_json_response(text: str) -> dict:
+    cleaned = _JSON_FENCE_RE.sub("", text.strip())
+    return json.loads(cleaned)
+
+
 class PostTranslator:
     def __init__(
         self,
@@ -38,10 +44,12 @@ class PostTranslator:
         api_key: str | None = None,
         base_url: str | None = None,
         model: str | None = None,
+        timeout: int | None = None,
     ):
         self.api_key = api_key or os.getenv("MOLTBOOK_TRANSLATE_API_KEY") or os.getenv("OPENAI_API_KEY")
-        self.base_url = (base_url or os.getenv("MOLTBOOK_TRANSLATE_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
-        self.model = model or os.getenv("MOLTBOOK_TRANSLATE_MODEL") or "gpt-4o-mini"
+        self.base_url = (base_url or config.TRANSLATE_API_BASE).rstrip("/")
+        self.model = model or config.TRANSLATE_MODEL
+        self.timeout = timeout or config.TRANSLATE_TIMEOUT
 
     @property
     def available(self) -> bool:
@@ -69,7 +77,6 @@ class PostTranslator:
                 {"role": "user", "content": user_msg},
             ],
             "temperature": 0.2,
-            "response_format": {"type": "json_object"},
         }
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -77,13 +84,18 @@ class PostTranslator:
         }
         url = f"{self.base_url}/chat/completions"
 
-        async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+        async with session.post(
+            url,
+            json=payload,
+            headers=headers,
+            timeout=aiohttp.ClientTimeout(total=self.timeout),
+        ) as resp:
             if resp.status != 200:
                 body = await resp.text()
                 raise RuntimeError(f"translate API HTTP {resp.status}: {body[:300]}")
             data = await resp.json()
             text = data["choices"][0]["message"]["content"]
-            parsed = json.loads(text)
+            parsed = _parse_json_response(text)
             return {
                 "title_zh": parsed.get("title_zh", title),
                 "content_zh": parsed.get("content_zh", content),

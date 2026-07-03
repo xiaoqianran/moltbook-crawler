@@ -9,6 +9,9 @@ wheels/
 # Virtual environments
 .venv
 
+# Secrets
+.env
+
 # Crawl output (keep samples optional)
 data/.state/
 data/crawl_failures.jsonl

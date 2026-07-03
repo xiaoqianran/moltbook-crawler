@@ -11,6 +11,13 @@ from .translate import PostTranslator, is_mostly_chinese
 
 
 class TranslateCrawler(AsyncCrawler):
+    def __init__(self, **kwargs):
+        from . import config
+
+        kwargs.setdefault("max_concurrent", config.TRANSLATE_MAX_CONCURRENT)
+        kwargs.setdefault("delay", config.TRANSLATE_DELAY)
+        super().__init__(**kwargs)
+
     async def crawl(self):
         db = PostDB(self.data_dir)
         try:
@@ -27,7 +34,13 @@ class TranslateCrawler(AsyncCrawler):
                 self._logger.error("translate API key missing — set MOLTBOOK_TRANSLATE_API_KEY")
                 raise RuntimeError("MOLTBOOK_TRANSLATE_API_KEY not set")
 
-            self._logger.info("translating %s posts model=%s", len(pending), translator.model)
+            self._logger.info(
+                "translating %s posts model=%s base=%s concurrency=%s",
+                len(pending),
+                translator.model,
+                translator.base_url,
+                self.max_concurrent,
+            )
             pbar = tqdm(total=len(pending), desc="Translate", unit="post")
 
             async with aiohttp.ClientSession() as session:
