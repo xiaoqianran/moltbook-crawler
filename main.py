@@ -136,8 +136,8 @@ def main():
     args = parser.parse_args()
 
     if args.proxy_results is None:
-        from crawlers import config
-        args.proxy_results = config.PROXY_RESULTS_DIR
+        from crawlers.config import PROXY_RESULTS_DIR
+        args.proxy_results = PROXY_RESULTS_DIR
 
     os.makedirs(args.output_dir, exist_ok=True)
 
@@ -158,9 +158,8 @@ def main():
     except KeyboardInterrupt:
         print("\n[!] Interrupted.")
         sys.exit(1)
-    except ImportError as e:
+    except FileNotFoundError as e:
         print(f"[!] {e}")
-        print("    Install deps: uv sync")
         sys.exit(1)
 
     print_summary(args.output_dir)

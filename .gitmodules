@@ -1,0 +1,3 @@
+[submodule "proxy-hunter"]
+	path = proxy-hunter
+	url = https://github.com/xiaoqianran/proxy-hunter.git

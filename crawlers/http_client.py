@@ -10,10 +10,7 @@ import aiohttp
 
 from . import config
 
-try:
-    from proxy_hunter import ProxyPool
-except ImportError:
-    ProxyPool = None  # type: ignore
+from .proxy_pool import ProxyPool
 
 ProxyMode = Literal["off", "always", "fallback"]
 

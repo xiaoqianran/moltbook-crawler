@@ -13,12 +13,8 @@ import aiohttp
 
 from . import config
 from .http_client import HttpClient
+from .proxy_pool import DEFAULT_RESULTS_DIR, load_pool_from_results
 from .storage import JsonlStore
-
-try:
-    from proxy_hunter import load_pool_from_results
-except ImportError:
-    load_pool_from_results = None  # type: ignore
 
 
 class AsyncCrawler(ABC):
@@ -37,7 +33,7 @@ class AsyncCrawler(ABC):
         self.data_dir = data_dir
         self.limit = limit
         self.use_proxy = config.USE_PROXY if use_proxy is None else use_proxy
-        self.proxy_results_dir = proxy_results_dir or config.PROXY_RESULTS_DIR
+        self.proxy_results_dir = proxy_results_dir or str(DEFAULT_RESULTS_DIR)
         self.proxy_mode = proxy_mode or ("fallback" if self.use_proxy else "off")
 
         if self.use_proxy:
@@ -66,8 +62,6 @@ class AsyncCrawler(ABC):
         self._start_time = time.time()
 
         if self.use_proxy:
-            if load_pool_from_results is None:
-                raise ImportError("proxy-hunter not installed. Run: uv sync")
             self.proxy_pool = load_pool_from_results(
                 self.proxy_results_dir,
                 top_n_sources=config.PROXY_TOP_SOURCES,

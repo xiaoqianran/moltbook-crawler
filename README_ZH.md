@@ -2,108 +2,83 @@
 
 [English](./README.md) | **中文**
 
-基于 Python asyncio 的 [moltbook.com](https://www.moltbook.com) 学术研究爬虫，集成 **[proxy-hunter](../proxy-hunter)** 作为代理依赖。
+moltbook.com 学术研究爬虫。**内置 [proxy-hunter](https://github.com/xiaoqianran/proxy-hunter) 子模块**（独立项目，仅引用，不合并）。
 
-## 架构（v0.2）
+## 目录结构
 
 ```
-main.py
- └── crawlers/
-      ├── base_crawler.py    # 生命周期 + proxy-hunter 集成
-      ├── http_client.py     # 直连 / fallback / always 代理模式
-      ├── storage.py         # JSONL 去重 + offset 断点续爬
-      ├── search_crawler.py  # /search 扩展发现（新）
-      ├── agent_crawler.py   # 多源种子 + 雪球 + search
-      ├── post_crawler.py    # 帖子 + 评论（可续爬）
-      ├── submolt_crawler.py
-      └── social_graph.py
+moltbook-crawler/          ← 本仓库（xiaoqianran/moltbook-crawler）
+├── crawlers/              ← 爬虫核心
+├── proxy-hunter/          ← git submodule → xiaoqianran/proxy-hunter
+│   └── source_tests/      ← 代理测试与 results/
+├── scripts/
+│   └── refresh_proxies.sh
+└── data/                  ← 爬取输出
 ```
 
-### 与 proxy-hunter 的关系
+> **proxy-hunter 仍是独立仓库**，此处通过 submodule 引用，不修改其项目形态。
 
-| 组件 | 作用 |
-|------|------|
-| `proxy-hunter` 包 | 从 `source_tests/results/` 加载已验证代理 |
-| `--proxy` | 启用代理池 |
-| `--proxy-mode fallback`（默认） | **直连优先**，遇 429/失败再换代理 |
-| `--proxy-mode always` | 每请求走代理（免费代理对 API 成功率低，不推荐） |
+## 克隆（含子模块）
 
 ```bash
-# 1. 先更新代理池（proxy-hunter ~18s）
-cd ../proxy-hunter/source_tests && python run_all.py
+git clone --recurse-submodules https://github.com/xiaoqianran/moltbook-crawler.git
+cd moltbook-crawler
+uv sync
+```
 
-# 2. 安装爬虫（自动链接本地 proxy-hunter）
-cd ../../moltbook-crawler && uv sync
+已克隆但未拉子模块：
 
-# 3. 推荐：fallback 模式
-uv run python main.py all --proxy --limit 100 --skip-comments
+```bash
+git submodule update --init --recursive
 ```
 
 ## 快速开始
 
 ```bash
-git clone <repo> moltbook-crawler
-cd moltbook-crawler
-uv sync
+# 1. 刷新代理池（调用内置 proxy-hunter，~18s）
+./scripts/refresh_proxies.sh
 
-# 测试
+# 2. 测试爬取
 uv run python main.py all --limit 50 --skip-comments
 
-# 带代理（429 时自动切换）
+# 3. 遇 429 时启用代理 fallback
 uv run python main.py all --proxy --limit 100 --skip-comments
 ```
 
 ## 命令
 
 ```
-uv run python main.py {all|search|agents|posts|submolts|social} [选项]
+uv run python main.py {all|search|agents|posts|submolts|social}
 
-选项:
-  --limit N              每爬虫最大条数（测试用）
-  --output-dir DIR       输出目录（默认 data/）
-  --skip-comments        跳过评论阶段
-  --proxy                启用 proxy-hunter 代理池
-  --proxy-mode MODE      fallback（默认）| always
-  --proxy-results PATH   代理结果目录（默认 ../proxy-hunter/source_tests/results）
+  --proxy              启用内置 proxy-hunter 结果（fallback 模式）
+  --proxy-mode MODE    fallback（默认）| always
+  --limit N            测试条数上限
+  --skip-comments      跳过评论
 ```
 
-### 推荐执行顺序（`all`）
+## 代理如何工作
 
-1. **search** — 搜索 API 发现更多 agent/post
-2. **agents** — 雪球扩展 agent 资料
-3. **posts** — 帖子列表 + 可选评论
-4. **submolts** — 社区列表
-5. **social** — 社交图谱边
-
-## 输出文件
-
-| 文件 | 内容 |
+| 步骤 | 说明 |
 |------|------|
-| `search_hits.jsonl` | 搜索命中的 agent/post/comment |
-| `agents.jsonl` | Agent 资料（可断点续爬） |
-| `posts.jsonl` | 帖子 |
-| `comments.jsonl` | 评论（扁平化，含 post_id） |
-| `submolts.jsonl` | 社区 |
-| `social_edges.jsonl` | 相似 agent 边 |
-| `data/.state/posts.offset` | 帖子爬取断点 |
+| `proxy-hunter/` | submodule，独立项目 |
+| `run_all.py` | 在子模块内跑，产出 `results/*.json` |
+| `crawlers/proxy_pool.py` | 读取 results，**不** pip 安装 proxy-hunter |
+| `--proxy` | 直连优先，429 时轮换代理 |
 
-## 局限说明
+## 爬虫模块
 
-- **Agent 无法全量枚举**：`/agents/recent` 仅 50 条，靠 discover 雪球 + search 扩展
-- **评论极耗时**：~27 万帖子各 1 请求，生产环境建议 `--skip-comments` 或分批
-- **免费代理**：仅适合 429 时 fallback，不适合 `--proxy-mode always`
+| 模块 | 作用 |
+|------|------|
+| `search_crawler` | `/search` 扩展 agent/post 发现 |
+| `agent_crawler` | 多源种子 + discover 雪球 |
+| `post_crawler` | 帖子 + 评论（offset 断点续爬） |
+| `submolt_crawler` | 社区列表 |
+| `social_graph` | 相似 agent 边 |
 
-## 依赖
-
-```toml
-# pyproject.toml
-proxy-hunter = { path = "../proxy-hunter", editable = true }
-```
-
-两项目需放在同级目录：
+## 依赖关系
 
 ```
-pro/
-├── proxy-hunter/
-└── moltbook-crawler/
+moltbook-crawler
+    └── proxy-hunter/   (git submodule，非 pip 包)
+            └── source_tests/results/  →  proxy_pool.py 读取
 ```
