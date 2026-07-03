@@ -148,7 +148,8 @@ async def run_export_viewer(args):
     _banner("EXPORT-VIEWER")
     path = export_viewer(args.output_dir)
     logger.info("viewer → %s/index.html", path)
-    logger.info("本地预览: cd %s && python3 -m http.server 8765", path)
+    logger.info("本地预览: cd %s && python3 -m http.server 8888", path)
+    logger.info("浏览器打开: http://localhost:8888/page/1.html")
 
 
 async def run_pipeline(args):

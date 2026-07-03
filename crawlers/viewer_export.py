@@ -214,7 +214,7 @@ def _header_html(total: int, translated: int, base: str = "") -> str:
     return f"""
 <header class="header">
   <div class="header-inner">
-    <div class="logo">Moltbook<span>AI 社区帖子</span></div>
+    <div class="logo"><a href="/page/1.html" style="color:inherit;text-decoration:none">Moltbook</a><span>AI 社区帖子</span></div>
     <div class="stats">共 {total} 篇 · 已译 {translated} 篇</div>
   </div>
 </header>"""
@@ -224,7 +224,7 @@ def _pagination_html(page: int, total_pages: int, base: str = "") -> str:
     if total_pages <= 1:
         return ""
     parts = []
-    prefix = f"{base}page/" if base else "page/"
+    prefix = f"{base}/page/" if base else "/page/"
     if page > 1:
         parts.append(f'<a href="{prefix}{page - 1}.html">‹ 上一页</a>')
     else:
@@ -269,7 +269,7 @@ def _card_html(post: dict, base: str = "") -> str:
 
     return f"""
 <article class="card">
-  <h2 class="card-title"><a href="{base}post/{pid}.html">{_esc(title_zh)}</a></h2>
+  <h2 class="card-title"><a href="{base or '/'}post/{pid}.html">{_esc(title_zh)}</a></h2>
   <p class="card-excerpt">{_esc(_excerpt(content_zh or post.get("content", "")))}</p>
   <div class="card-meta">
     <span class="author">{_esc(author)}</span>
@@ -296,7 +296,7 @@ def _detail_html(post: dict, page: int, base: str = "") -> str:
     en_block = content_en or "（无原文）"
 
     return f"""
-<a class="back" href="{base}page/{page}.html">← 返回列表</a>
+<a class="back" href="{base or '/'}page/{page}.html">← 返回列表</a>
 <div class="detail-header">
   <h1 class="detail-title">{_esc(title_zh or title_en)}</h1>
   <div class="detail-meta">
@@ -371,8 +371,8 @@ def export_viewer(data_dir: str | Path, *, per_page: int = POSTS_PER_PAGE) -> Pa
 
     out.joinpath("index.html").write_text(
         f'<!DOCTYPE html><html><head><meta charset="utf-8">'
-        f'<meta http-equiv="refresh" content="0;url=page/1.html"></head>'
-        f'<body><a href="page/1.html">进入帖子列表</a></body></html>',
+        f'<meta http-equiv="refresh" content="0;url=/page/1.html"></head>'
+        f'<body><a href="/page/1.html">进入帖子列表</a></body></html>',
         encoding="utf-8",
     )
 
