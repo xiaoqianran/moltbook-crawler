@@ -153,12 +153,41 @@ async def run_export_viewer(args):
 
 
 async def run_pipeline(args):
-    """Crawl posts → translate → export Zhihu-style viewer."""
+    """Crawl posts → (optional feeds) → translate → export viewer."""
+    from crawlers import config
+
+    # --limit 0 = 全量；未指定则用默认测试规模
+    if args.limit is None:
+        args.limit = config.PIPELINE_DEFAULT_LIMIT
+    elif args.limit == 0:
+        args.limit = None
+
+    feeds_limit = args.feeds_limit
+    if feeds_limit is None and args.limit:
+        feeds_limit = config.PIPELINE_DEFAULT_FEEDS_LIMIT
+    elif feeds_limit == 0:
+        feeds_limit = None
+
+    logger.info(
+        "pipeline start post_limit=%s feeds_limit=%s translate=%s",
+        args.limit or "all",
+        feeds_limit if not args.skip_feeds else "skip",
+        args.limit or "all",
+    )
+
     await run_posts(args)
-    await run_feeds(args)
+
+    if not args.skip_feeds:
+        feed_kw = crawler_kwargs(args)
+        feed_kw["limit"] = feeds_limit
+        _banner("FEEDS")
+        from crawlers.feed_crawler import FeedCrawler
+        await FeedCrawler(**feed_kw).run()
+
     await run_translate(args)
     await run_export_viewer(args)
     _refresh_dashboard(args.output_dir)
+    logger.info("pipeline done")
 
 
 def _refresh_dashboard(data_dir: str) -> None:
@@ -231,7 +260,23 @@ def main():
             "export-viewer", "pipeline",
         ],
     )
-    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="帖子/翻译上限；pipeline 默认 200，传 0 表示全量爬取",
+    )
+    parser.add_argument(
+        "--feeds-limit",
+        type=int,
+        default=None,
+        help="pipeline 中 feeds 爬取的社区数，默认 10",
+    )
+    parser.add_argument(
+        "--skip-feeds",
+        action="store_true",
+        help="pipeline 跳过 feeds 阶段（更快测试）",
+    )
     parser.add_argument("--output-dir", default="data")
     parser.add_argument("--skip-comments", action="store_true")
     parser.add_argument("--proxy", action="store_true")

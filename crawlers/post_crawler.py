@@ -28,12 +28,13 @@ class PostCrawler(AsyncCrawler):
 
             total_new = 0
             total_dup = 0
+            total_processed = 0
             for sort in self.sorts:
                 if self._shutdown:
                     break
                 remaining = None
                 if self.limit:
-                    remaining = max(0, self.limit - total_new)
+                    remaining = max(0, self.limit - total_processed)
                     if remaining == 0:
                         break
 
@@ -80,8 +81,9 @@ class PostCrawler(AsyncCrawler):
                     shutdown=lambda: self._shutdown,
                     on_page=on_page,
                 )
+                total_processed += n
                 pbar.close()
-                print(f"    sort={sort}: {n} posts this run")
+                print(f"    sort={sort}: {n} posts this run (processed {total_processed}/{self.limit or '∞'})")
 
             db.export_jsonl()
             stats = db.stats()
