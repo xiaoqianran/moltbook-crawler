@@ -5,8 +5,8 @@ from tqdm import tqdm
 from . import config
 from .base_crawler import AsyncCrawler
 from .paginate import crawl_cursor_pages
+from .post_db import PostDB
 
-POSTS_FILE = "posts.jsonl"
 AUTHORS_FILE = "post_authors.txt"
 
 
@@ -20,72 +20,86 @@ class PostCrawler(AsyncCrawler):
         self.posts_with_comments: list[str] = []
 
     async def crawl(self):
-        seen_ids = self.store.load_seen(POSTS_FILE, "id")
-        if seen_ids:
-            print(f"[*] Resume: {len(seen_ids)} posts already in {POSTS_FILE}")
+        db = PostDB(self.data_dir)
+        try:
+            existing = db.count()
+            if existing:
+                print(f"[*] PostDB: {existing} posts already stored (global dedup)")
 
-        total_new = 0
-        for sort in self.sorts:
-            if self._shutdown:
-                break
-            remaining = None
-            if self.limit:
-                remaining = max(0, self.limit - total_new)
-                if remaining == 0:
+            total_new = 0
+            total_dup = 0
+            for sort in self.sorts:
+                if self._shutdown:
                     break
+                remaining = None
+                if self.limit:
+                    remaining = max(0, self.limit - total_new)
+                    if remaining == 0:
+                        break
 
-            print(f"[*] Listing posts sort={sort}")
-            pbar = tqdm(desc=f"posts/{sort}", unit="post")
+                print(f"[*] Listing posts sort={sort}")
+                pbar = tqdm(desc=f"posts/{sort}", unit="post")
 
-            async def on_page(items: list[dict], _data: dict) -> None:
-                nonlocal total_new
-                new = [p for p in items if p.get("id") not in seen_ids]
-                if not new:
-                    return
-                for p in new:
-                    pid = p.get("id")
-                    if pid:
-                        seen_ids.add(pid)
-                    name = p.get("author", {}).get("name")
-                    if name:
-                        self.authors.add(name)
-                    if (p.get("comment_count") or 0) > 0 and pid:
-                        self.posts_with_comments.append(pid)
-                await self.save_records(POSTS_FILE, new)
-                total_new += len(new)
-                pbar.update(len(new))
+                async def on_page(items: list[dict], _data: dict, *, _sort: str = sort) -> None:
+                    nonlocal total_new, total_dup
+                    for p in items:
+                        pid = p.get("id")
+                        if not pid:
+                            continue
+                        result = db.upsert_from_api(
+                            p,
+                            source=f"posts/{_sort}",
+                            sort_mode=_sort,
+                        )
+                        if result == "new":
+                            total_new += 1
+                            pbar.update(1)
+                        elif result == "duplicate":
+                            total_dup += 1
+                        name = p.get("author", {}).get("name")
+                        if name:
+                            self.authors.add(name)
+                        if (p.get("comment_count") or 0) > 0:
+                            self.posts_with_comments.append(pid)
 
-            state_key = f"posts.cursor.{sort}"
+                state_key = f"posts.cursor.{sort}"
 
-            async def fetch_page(params: dict) -> dict | None:
-                return await self.fetch_json(f"{config.API_BASE}/posts", params=params)
+                async def fetch_page(params: dict) -> dict | None:
+                    return await self.fetch_json(f"{config.API_BASE}/posts", params=params)
 
-            base_params = {"limit": config.PAGE_SIZE, "sort": sort}
-            # restore cursor if resuming this sort only when no new limit override
-            saved = self.store.read_state_str(state_key)
-            if saved and not self.limit:
-                base_params["cursor"] = saved
+                base_params = {"limit": config.PAGE_SIZE, "sort": sort}
+                saved = self.store.read_state_str(state_key)
+                if saved and not self.limit:
+                    base_params["cursor"] = saved
 
-            n = await crawl_cursor_pages(
-                fetch_page,
-                params=base_params,
-                items_key="posts",
-                limit=remaining,
-                shutdown=lambda: self._shutdown,
-                on_page=on_page,
-            )
-            pbar.close()
-            print(f"    sort={sort}: {n} posts this run")
+                n = await crawl_cursor_pages(
+                    fetch_page,
+                    params=base_params,
+                    items_key="posts",
+                    limit=remaining,
+                    shutdown=lambda: self._shutdown,
+                    on_page=on_page,
+                )
+                pbar.close()
+                print(f"    sort={sort}: {n} posts this run")
 
-        print(f"[*] Total new posts: {total_new}")
-        print(f"    Authors: {len(self.authors)}, with comments: {len(self.posts_with_comments)}")
-        self.store.write_lines(AUTHORS_FILE, sorted(self.authors))
+            db.export_jsonl()
+            stats = db.stats()
+            print(f"[*] PostDB: +{total_new} new, {total_dup} duplicate merges")
+            print(f"    Total unique: {stats['total']}, pending translate: {stats['pending']}")
+            print(f"    Authors: {len(self.authors)}, with comments: {len(self.posts_with_comments)}")
+            self.store.write_lines(AUTHORS_FILE, sorted(self.authors))
+            self._save_comments_todo(db)
+            if self._report:
+                self._report.extra = {"new": total_new, "duplicate": total_dup, **stats}
+        finally:
+            db.close()
 
-        # Save post ids needing comments for comments crawler
-        if self.posts_with_comments:
-            todo_path = self.store.state_path("comments.todo.txt")
-            existing: set[str] = set()
-            if todo_path.exists():
-                existing = {ln.strip() for ln in todo_path.read_text(encoding="utf-8").splitlines() if ln.strip()}
-            merged = existing | set(self.posts_with_comments)
+    def _save_comments_todo(self, db: PostDB) -> None:
+        todo_path = self.store.state_path("comments.todo.txt")
+        existing: set[str] = set()
+        if todo_path.exists():
+            existing = {ln.strip() for ln in todo_path.read_text(encoding="utf-8").splitlines() if ln.strip()}
+        merged = existing | set(self.posts_with_comments) | set(db.post_ids_with_comments())
+        if merged:
             todo_path.write_text("\n".join(sorted(merged)) + "\n", encoding="utf-8")

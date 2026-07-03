@@ -1,10 +1,76 @@
-# Moltbook Crawler v0.4
+# Moltbook Crawler v0.5
 
 [English](./README.md) | **中文**
 
 moltbook.com 学术研究爬虫。内置 **proxy-hunter** 子模块（git submodule）。
 
-## 工程化能力（v0.4）
+## v0.5 新增：帖子去重 + 双语保留
+
+### 爬取哪些帖子？
+
+| 来源 | API | 说明 |
+|------|-----|------|
+| **posts** | `GET /api/v1/posts?sort=new\|hot` | 全站帖子列表（按时间 / 热度） |
+| **feeds** | `GET /api/v1/submolts/{name}/feed` | 各社区子版块 feed（扩大覆盖面） |
+| **search** | `GET /api/v1/search?type=posts` | 搜索命中（发现用，**不写入帖子库**） |
+
+`search` 只产出 `search_hits.jsonl`；真正入库的帖子来自 **posts** 与 **feeds** 两条链路。
+
+### 全局去重（不会重复存同一帖）
+
+所有帖子写入 **`data/posts.db`**（SQLite，`id` 唯一约束）。同一帖子无论从 `posts/new`、`posts/hot` 还是 `feed/general` 爬到，**只保留一条记录**，并在 `_sources` 字段记录发现来源：
+
+```json
+{
+  "id": "uuid",
+  "title": "original English title",
+  "content": "original body",
+  "title_original": "original English title",
+  "content_original": "original body",
+  "title_zh": "简体中文标题",
+  "content_zh": "简体中文正文",
+  "lang_detected": "en",
+  "translate_status": "done",
+  "_sources": ["posts/new", "posts/hot", "feed/general"],
+  "_sort_modes": ["new", "hot"]
+}
+```
+
+导出文件 **`data/posts.jsonl`** 由数据库生成，供下游分析使用。旧的 `feed_posts.jsonl` 不再单独写入；可用 `merge-legacy` 合并历史数据。
+
+### 高质量简体中文翻译
+
+```bash
+# 配置 OpenAI 兼容 API（任选其一）
+export MOLTBOOK_TRANSLATE_API_KEY=sk-...
+# 或 export OPENAI_API_KEY=sk-...
+
+# 可选
+export MOLTBOOK_TRANSLATE_BASE_URL=https://api.openai.com/v1
+export MOLTBOOK_TRANSLATE_MODEL=gpt-4o-mini
+
+# 单独翻译待处理帖子
+uv run python main.py translate --limit 50
+
+# 爬取后自动翻译
+uv run python main.py discover --limit 100 --translate
+```
+
+- 原文保留在 `title` / `content`（及 `title_original` / `content_original`）
+- 译文写入 `title_zh` / `content_zh`
+- 已是中文的帖子自动 `skipped`，不重复调用 API
+
+### 合并历史 jsonl（一次性迁移）
+
+若你已有 v0.4 的 `posts.jsonl` + `feed_posts.jsonl`：
+
+```bash
+uv run python main.py merge-legacy
+```
+
+会按 `id` 去重合并进 `posts.db`，再重新导出 `posts.jsonl`。
+
+## 工程化能力（v0.4+）
 
 | 能力 | 说明 |
 |------|------|
@@ -12,8 +78,8 @@ moltbook.com 学术研究爬虫。内置 **proxy-hunter** 子模块（git submod
 | **失败明细** | `data/crawl_failures.jsonl` 每条失败请求 |
 | **运行报告** | `data/.state/report_*.json` 每爬虫统计 |
 | **健康检查** | `main.py verify` → `verify_report.json` |
-| **单元测试** | `pytest` 覆盖 storage/paginate/proxy/log |
-| **集成测试** | `pytest -m integration`  live API |
+| **单元测试** | `pytest` 覆盖 storage/paginate/proxy/log/post_db |
+| **集成测试** | `pytest -m integration` live API |
 
 ## 快速开始
 
@@ -22,54 +88,21 @@ git clone --recurse-submodules https://github.com/xiaoqianran/moltbook-crawler.g
 cd moltbook-crawler
 uv sync --dev
 
-# 1. 健康检查（推荐第一步）
 uv run python main.py verify
-
-# 2. 单元测试
 uv run pytest -m "not integration" -v
-
-# 3. 集成测试（需网络）
-uv run pytest -m integration -v
-
-# 4. 爬取
 uv run python main.py discover --limit 100 --log-level INFO
 ```
 
 ## 命令
 
 ```
-uv run python main.py {verify|discover|all|search|feeds|posts|comments|agents|submolts|social}
+uv run python main.py {verify|discover|all|search|feeds|posts|comments|agents|submolts|social|translate|merge-legacy}
 
+  --translate                      discover/all 结束后自动翻译
   --log-level DEBUG|INFO|WARNING   日志级别
-  --log-file NAME                  默认 crawler.log
   --proxy / --proxy-mode fallback  代理（429 时切换）
   --limit N                        测试条数上限
 ```
-
-## 日志与验证工作流
-
-```bash
-# 跑功能
-uv run python main.py search --limit 20 --log-level DEBUG
-
-# 看日志
-tail -f data/logs/crawler.log
-
-# 看失败
-cat data/crawl_failures.jsonl | python3 -m json.tool
-
-# 看最近一次爬虫报告
-cat data/.state/report_latest.json | python3 -m json.tool
-
-# 验证 API + 代理池 + 日志文件是否健全
-uv run python main.py verify
-cat data/verify_report.json
-```
-
-### 代理说明
-
-- **默认直连**，日志里 `connection=direct`
-- `--proxy` 时 `proxy/fallback`，失败写入 `crawl_failures.jsonl` 含 `proxy` 字段
 
 ## 爬虫模块
 
@@ -77,8 +110,10 @@ cat data/verify_report.json
 |------|------|
 | `search` | `search_hits.jsonl` |
 | `submolts` | `submolts.jsonl`, `submolt_details.jsonl` |
-| `feeds` | `feed_posts.jsonl` |
-| `posts` | `posts.jsonl` (new+hot) |
+| `feeds` | → `posts.db` → `posts.jsonl` |
+| `posts` | → `posts.db` → `posts.jsonl` |
+| `translate` | 更新 `posts.db` 译文 → 导出 `posts.jsonl` |
+| `merge-legacy` | 合并旧 jsonl → `posts.db` |
 | `comments` | `comments.jsonl` |
 | `agents` | `agents.jsonl` |
 | `social` | `social_edges.jsonl` |
@@ -88,22 +123,18 @@ cat data/verify_report.json
 ```
 moltbook-crawler/
 ├── crawlers/
-│   ├── logging_config.py    # 日志
-│   ├── failure_log.py       # 失败 JSONL
-│   ├── run_report.py        # 运行报告
-│   ├── verify.py            # 健康检查
+│   ├── post_db.py           # SQLite 帖子库（去重 + 双语）
+│   ├── translate.py         # LLM 翻译
+│   ├── translate_crawler.py
 │   └── ...
-├── tests/                   # pytest
+├── tests/
 ├── proxy-hunter/            # submodule
 └── data/
-    ├── logs/crawler.log
-    ├── crawl_failures.jsonl
-    ├── verify_report.json
-    └── .state/report_*.json
+    ├── posts.db             # 唯一帖子库
+    ├── posts.jsonl          # 导出（原文 + 简体中文）
+    └── logs/crawler.log
 ```
 
 ## CI
 
-推送 `main` 后 GitHub Actions 自动跑：
-1. 单元测试 `pytest -m "not integration"`
-2. `main.py verify` + 集成测试
+推送 `main` 后 GitHub Actions 自动跑单元测试、`main.py verify` 与集成测试。

@@ -83,10 +83,40 @@ async def run_discover(args):
     await run_feeds(args)
     await run_posts(args)
     await run_agents(args)
+    if getattr(args, "translate", False):
+        await run_translate(args)
+
+
+async def run_translate(args):
+    from crawlers.translate_crawler import TranslateCrawler
+    _banner("TRANSLATE")
+    await TranslateCrawler(**crawler_kwargs(args)).run()
+
+
+async def run_merge_legacy(args):
+    from pathlib import Path
+
+    from crawlers.post_db import PostDB, POSTS_JSONL
+
+    _banner("MERGE-LEGACY")
+    data = Path(args.output_dir)
+    db = PostDB(data)
+    try:
+        n1, d1 = db.import_jsonl_file(data / POSTS_JSONL, source="posts/legacy")
+        n2, d2 = db.import_jsonl_file(data / "feed_posts.jsonl", source="feed/legacy")
+        db.export_jsonl()
+        stats = db.stats()
+        logger.info("merged posts.jsonl      new=%s duplicate=%s", n1, d1)
+        logger.info("merged feed_posts.jsonl new=%s duplicate=%s", n2, d2)
+        logger.info("post_db stats: %s", stats)
+    finally:
+        db.close()
 
 
 async def run_all(args):
     await run_discover(args)
+    if getattr(args, "translate", False):
+        await run_translate(args)
     if not args.skip_comments:
         await run_comments(args)
     _banner("SOCIAL")
@@ -109,6 +139,22 @@ def print_summary(data_dir: str):
     logger.info("=" * 20 + " SUMMARY " + "=" * 20)
     if not os.path.isdir(data_dir):
         return
+    db_path = os.path.join(data_dir, "posts.db")
+    if os.path.isfile(db_path):
+        from crawlers.post_db import PostDB
+
+        db = PostDB(data_dir)
+        try:
+            s = db.stats()
+            logger.info(
+                "  %-30s %10d unique posts  (translated=%s pending=%s)",
+                "posts.db",
+                s["total"],
+                s["translated"],
+                s["pending"],
+            )
+        finally:
+            db.close()
     for fname in sorted(os.listdir(data_dir)):
         if fname.startswith("."):
             continue
@@ -119,16 +165,19 @@ def print_summary(data_dir: str):
         if fname.endswith(".jsonl"):
             with open(fpath, encoding="utf-8") as f:
                 lines = sum(1 for _ in f)
-            logger.info("  %-30s %10,} records  (%.1f MB)", fname, lines, size / 1024 / 1024)
+            logger.info("  %-30s %10d records  (%.1f MB)", fname, lines, size / 1024 / 1024)
         else:
             logger.info("  %-30s (%.1f KB)", fname, size / 1024)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Moltbook Crawler v0.4")
+    parser = argparse.ArgumentParser(description="Moltbook Crawler v0.5")
     parser.add_argument(
         "command",
-        choices=["all", "discover", "search", "submolts", "feeds", "posts", "comments", "agents", "social", "verify"],
+        choices=[
+            "all", "discover", "search", "submolts", "feeds", "posts", "comments",
+            "agents", "social", "verify", "translate", "merge-legacy",
+        ],
     )
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--output-dir", default="data")
@@ -140,6 +189,11 @@ def main():
     parser.add_argument("--delay", type=float, default=None)
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     parser.add_argument("--log-file", default=None, help="default: data/logs/crawler.log")
+    parser.add_argument(
+        "--translate",
+        action="store_true",
+        help="after discover/all, translate pending posts to 简体中文 (needs API key)",
+    )
     args = parser.parse_args()
 
     if args.proxy_results is None:
@@ -171,6 +225,8 @@ def main():
         "discover": lambda: run_discover(args),
         "all": lambda: run_all(args),
         "verify": lambda: run_verify(args),
+        "translate": lambda: run_translate(args),
+        "merge-legacy": lambda: run_merge_legacy(args),
     }
 
     try:

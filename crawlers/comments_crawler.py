@@ -4,9 +4,12 @@ import asyncio
 
 from tqdm import tqdm
 
+from pathlib import Path
+
 from . import config
 from .base_crawler import AsyncCrawler
 from .paginate import crawl_cursor_pages
+from .post_db import DB_NAME, PostDB
 
 COMMENTS_FILE = "comments.jsonl"
 POSTS_FILE = "posts.jsonl"
@@ -44,8 +47,17 @@ class CommentsCrawler(AsyncCrawler):
             if names:
                 return sorted(names)
 
-        # fallback: posts.jsonl with comment_count > 0
-        ids: list[str] = []
+        db_path = Path(self.data_dir) / DB_NAME
+        if db_path.exists():
+            db = PostDB(self.data_dir)
+            try:
+                ids = db.post_ids_with_comments()
+                if ids:
+                    return ids
+            finally:
+                db.close()
+
+        ids = []
         for rec in self.store.load_jsonl_records(POSTS_FILE):
             if (rec.get("comment_count") or 0) > 0 and rec.get("id"):
                 ids.append(rec["id"])
