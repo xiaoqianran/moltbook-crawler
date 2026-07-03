@@ -96,6 +96,70 @@ def _check_failures_file(data_dir: Path) -> CheckResult:
     )
 
 
+def _check_post_db(data_dir: Path) -> CheckResult:
+    from .post_db import DB_NAME, PostDB
+
+    db_path = data_dir / DB_NAME
+    if not db_path.exists():
+        return CheckResult(name="post_db", ok=True, detail="no posts.db yet (ok)")
+    db = PostDB(data_dir)
+    try:
+        s = db.stats()
+        ok = s["total"] == 0 or s["translated"] + s["pending"] + s["failed"] + s["skipped"] == s["total"]
+        return CheckResult(
+            name="post_db",
+            ok=ok,
+            detail=f"total={s['total']} translated={s['translated']} pending={s['pending']} failed={s['failed']}",
+            extra=s,
+        )
+    finally:
+        db.close()
+
+
+def _check_translate_log(data_dir: Path) -> CheckResult:
+    from .translate_log import TRANSLATE_OPS_FILE
+
+    path = data_dir / TRANSLATE_OPS_FILE
+    if not path.exists():
+        return CheckResult(name="translate_log", ok=True, detail="no translate ops yet (ok)")
+    lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    failed = 0
+    for ln in lines[-50:]:
+        try:
+            if json.loads(ln).get("status") == "failed":
+                failed += 1
+        except json.JSONDecodeError:
+            continue
+    return CheckResult(
+        name="translate_log",
+        ok=True,
+        detail=f"{len(lines)} ops, recent_failed={failed}",
+        extra={"count": len(lines), "recent_failed": failed},
+    )
+
+
+async def _check_translate_api() -> CheckResult:
+    from .translate import PostTranslator
+
+    translator = PostTranslator()
+    if not translator.available:
+        return CheckResult(
+            name="translate_api",
+            ok=True,
+            detail="skipped (no MOLTBOOK_TRANSLATE_API_KEY)",
+        )
+    cfg = translator.config_summary()
+    async with aiohttp.ClientSession() as session:
+        ok, detail, ms = await translator.health_check(session)
+    return CheckResult(
+        name="translate_api",
+        ok=ok,
+        detail=detail,
+        latency_ms=ms,
+        extra=cfg,
+    )
+
+
 async def run_verify(data_dir: str, *, proxy_results_dir: str | None = None) -> VerifyReport:
     started = time.time()
     report = VerifyReport(started_at=time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()))
@@ -133,14 +197,23 @@ async def run_verify(data_dir: str, *, proxy_results_dir: str | None = None) -> 
             else:
                 logger.error("verify FAIL %s %s (%sms)", name, detail, ms)
 
-    for fn in (
-        lambda: _check_proxy_results(results_dir),
-        lambda: _check_log_file(data_path),
-        lambda: _check_failures_file(data_path),
-    ):
-        c = fn()
+    local_checks = [
+        _check_proxy_results(results_dir),
+        _check_log_file(data_path),
+        _check_failures_file(data_path),
+        _check_post_db(data_path),
+        _check_translate_log(data_path),
+    ]
+    for c in local_checks:
         report.add(c)
         (logger.info if c.ok else logger.error)("verify %s %s — %s", "PASS" if c.ok else "FAIL", c.name, c.detail)
+
+    translate_check = await _check_translate_api()
+    report.add(translate_check)
+    if translate_check.ok:
+        logger.info("verify PASS %s — %s (%sms)", translate_check.name, translate_check.detail, translate_check.latency_ms)
+    else:
+        logger.error("verify FAIL %s — %s (%sms)", translate_check.name, translate_check.detail, translate_check.latency_ms)
 
     report.elapsed_s = round(time.time() - started, 2)
     report.finished_at = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())

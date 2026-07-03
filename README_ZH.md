@@ -70,16 +70,37 @@ uv run python main.py merge-legacy
 
 会按 `id` 去重合并进 `posts.db`，再重新导出 `posts.jsonl`。
 
-## 工程化能力（v0.4+）
+## 工程化能力（v0.5+）
 
 | 能力 | 说明 |
 |------|------|
 | **结构化日志** | `data/logs/crawler.log` + 控制台，`--log-level DEBUG` |
-| **失败明细** | `data/crawl_failures.jsonl` 每条失败请求 |
-| **运行报告** | `data/.state/report_*.json` 每爬虫统计 |
-| **健康检查** | `main.py verify` → `verify_report.json` |
-| **单元测试** | `pytest` 覆盖 storage/paginate/proxy/log/post_db |
+| **爬取失败明细** | `data/crawl_failures.jsonl` 每条失败 HTTP 请求 |
+| **翻译审计日志** | `data/translate_operations.jsonl` 每条翻译（成功/失败/跳过、耗时、重试次数） |
+| **运行报告** | `data/.state/report_*.json` 每爬虫统计（含 translate_session） |
+| **健康检查** | `main.py verify` → `verify_report.json`（含 post_db、translate_api 冒烟） |
+| **单元测试** | `pytest` 覆盖 translate/translate_log/verify/post_db 等 |
 | **集成测试** | `pytest -m integration` live API |
+
+### 翻译监控与问题定位
+
+```bash
+# 1. 健康检查（含翻译 API 冒烟测试，需 .env 配好 Key）
+uv run python main.py verify
+cat data/verify_report.json | python3 -m json.tool
+
+# 2. 跑翻译并看实时日志
+uv run python main.py translate --log-level DEBUG
+tail -f data/logs/crawler.log | grep -E 'translate|Translate'
+
+# 3. 审计每条翻译结果
+cat data/translate_operations.jsonl | python3 -m json.tool
+
+# 4. 单元测试验证翻译逻辑（mock API，不耗额度）
+uv run pytest tests/test_translate.py tests/test_translate_log.py tests/test_verify_translate.py -v
+```
+
+`translate_operations.jsonl` 字段：`post_id`、`status`（success/failed/skipped）、`latency_ms`、`attempts`、`error`。
 
 ## 快速开始
 

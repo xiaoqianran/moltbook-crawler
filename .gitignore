@@ -15,6 +15,7 @@ wheels/
 # Crawl output (keep samples optional)
 data/.state/
 data/crawl_failures.jsonl
+data/translate_operations.jsonl
 data/logs/
 data/test_run/
 data/log_test/
