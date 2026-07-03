@@ -19,7 +19,7 @@ class SearchCrawler(AsyncCrawler):
 
         seen: set[str] = set()
         total = 0
-        print(f"[*] Search: {len(queries)} queries × {len(config.SEARCH_TYPES)} types")
+        self._logger.info("search queries=%s types=%s", len(queries), len(config.SEARCH_TYPES))
 
         for q in tqdm(queries, desc="Queries", unit="q"):
             if self._shutdown:
@@ -48,7 +48,7 @@ class SearchCrawler(AsyncCrawler):
                 if self.limit:
                     per_limit = max(1, self.limit - total)
                     if per_limit <= 0:
-                        print(f"[*] Search limit reached: {total}")
+                        self._logger.info("search limit reached total=%s", total)
                         return
 
                 await crawl_cursor_pages(
@@ -60,4 +60,4 @@ class SearchCrawler(AsyncCrawler):
                     on_page=on_page,
                 )
 
-        print(f"[*] Saved {total} search hits → {SEARCH_FILE}")
+        self._logger.info("saved search_hits=%s file=%s", total, SEARCH_FILE)

@@ -12,7 +12,11 @@ wheels/
 # Crawl output (keep samples optional)
 data/.state/
 data/crawl_failures.jsonl
+data/logs/
 data/test_run/
+data/log_test/
+data/ci_verify/
+verify_report.json
 
 # proxy-hunter runtime cache (submodule)
 proxy-hunter/source_tests/.cache/

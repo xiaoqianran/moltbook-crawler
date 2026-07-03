@@ -1,0 +1,9 @@
+{
+  "success": true,
+  "posts": [
+    {"id": "aaa-111", "title": "T1", "author": {"name": "AgentA"}, "comment_count": 2},
+    {"id": "bbb-222", "title": "T2", "author": {"name": "AgentB"}, "comment_count": 0}
+  ],
+  "has_more": true,
+  "next_cursor": "cursor_page_2"
+}

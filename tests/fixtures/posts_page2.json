@@ -1,0 +1,8 @@
+{
+  "success": true,
+  "posts": [
+    {"id": "ccc-333", "title": "T3", "author": {"name": "AgentC"}, "comment_count": 1}
+  ],
+  "has_more": false,
+  "next_cursor": null
+}

@@ -12,6 +12,10 @@ import asyncio
 import os
 import sys
 
+from crawlers.logging_config import get_logger, setup_logging
+
+logger = get_logger("main")
+
 
 def crawler_kwargs(args) -> dict:
     kw = {
@@ -27,72 +31,82 @@ def crawler_kwargs(args) -> dict:
     return kw
 
 
+def _banner(title: str) -> None:
+    logger.info("=" * 20 + " %s " + "=" * 20, title)
+
+
 async def run_search(args):
     from crawlers.search_crawler import SearchCrawler
-    print("=" * 60, "\n  SEARCH CRAWLER\n", "=" * 60, sep="")
+    _banner("SEARCH")
     await SearchCrawler(**crawler_kwargs(args)).run()
 
 
 async def run_submolts(args):
     from crawlers.submolt_crawler import SubmoltCrawler
-    print("=" * 60, "\n  SUBMOLT CRAWLER\n", "=" * 60, sep="")
+    _banner("SUBMOLTS")
     await SubmoltCrawler(**crawler_kwargs(args)).run()
 
 
 async def run_feeds(args):
     from crawlers.feed_crawler import FeedCrawler
-    print("=" * 60, "\n  SUBMOLT FEED CRAWLER\n", "=" * 60, sep="")
+    _banner("FEEDS")
     await FeedCrawler(**crawler_kwargs(args)).run()
 
 
 async def run_posts(args):
     from crawlers.post_crawler import PostCrawler
-    print("=" * 60, "\n  POST CRAWLER\n", "=" * 60, sep="")
+    _banner("POSTS")
     await PostCrawler(**crawler_kwargs(args)).run()
 
 
 async def run_comments(args):
     from crawlers.comments_crawler import CommentsCrawler
-    print("=" * 60, "\n  COMMENTS CRAWLER\n", "=" * 60, sep="")
+    _banner("COMMENTS")
     await CommentsCrawler(**crawler_kwargs(args)).run()
 
 
 async def run_agents(args):
     from crawlers.agent_crawler import AgentCrawler
-    print("=" * 60, "\n  AGENT CRAWLER\n", "=" * 60, sep="")
+    _banner("AGENTS")
     await AgentCrawler(**crawler_kwargs(args)).run()
 
 
 async def run_social(args):
     from crawlers.social_graph import SocialGraphCrawler
-    print("=" * 60, "\n  SOCIAL GRAPH CRAWLER\n", "=" * 60, sep="")
+    _banner("SOCIAL")
     await SocialGraphCrawler(**crawler_kwargs(args)).run()
 
 
 async def run_discover(args):
-    """Fast discovery pass: search + submolts + feeds + posts + agents."""
     await run_search(args)
-    print()
     await run_submolts(args)
-    print()
     await run_feeds(args)
-    print()
     await run_posts(args)
-    print()
     await run_agents(args)
 
 
 async def run_all(args):
     await run_discover(args)
     if not args.skip_comments:
-        print()
         await run_comments(args)
-    print("\n  SOCIAL GRAPH\n")
+    _banner("SOCIAL")
     await run_social(args)
 
 
+async def run_verify(args):
+    from crawlers.verify import run_verify
+    _banner("VERIFY")
+    report = await run_verify(args.output_dir, proxy_results_dir=args.proxy_results)
+    for c in report.checks:
+        level = logger.info if c.ok else logger.error
+        level("  [%s] %s — %s", "PASS" if c.ok else "FAIL", c.name, c.detail)
+    logger.info("verify_report → %s/verify_report.json ok=%s", args.output_dir, report.ok)
+    if not report.ok:
+        sys.exit(2)
+
+
 def print_summary(data_dir: str):
-    print("\n" + "=" * 60, "\n  SUMMARY\n", "=" * 60, sep="")
+    logger.info("=" * 20 + " SUMMARY " + "=" * 20)
     if not os.path.isdir(data_dir):
         return
     for fname in sorted(os.listdir(data_dir)):
@@ -105,16 +119,16 @@ def print_summary(data_dir: str):
         if fname.endswith(".jsonl"):
             with open(fpath, encoding="utf-8") as f:
                 lines = sum(1 for _ in f)
-            print(f"  {fname:<30s} {lines:>10,} records  ({size / 1024 / 1024:.1f} MB)")
+            logger.info("  %-30s %10,} records  (%.1f MB)", fname, lines, size / 1024 / 1024)
         else:
-            print(f"  {fname:<30s} ({size / 1024:.1f} KB)")
+            logger.info("  %-30s (%.1f KB)", fname, size / 1024)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Moltbook Crawler v0.3")
+    parser = argparse.ArgumentParser(description="Moltbook Crawler v0.4")
     parser.add_argument(
         "command",
-        choices=["all", "discover", "search", "submolts", "feeds", "posts", "comments", "agents", "social"],
+        choices=["all", "discover", "search", "submolts", "feeds", "posts", "comments", "agents", "social", "verify"],
     )
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--output-dir", default="data")
@@ -124,6 +138,8 @@ def main():
     parser.add_argument("--proxy-results", default=None)
     parser.add_argument("--concurrency", type=int, default=None)
     parser.add_argument("--delay", type=float, default=None)
+    parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    parser.add_argument("--log-file", default=None, help="default: data/logs/crawler.log")
     args = parser.parse_args()
 
     if args.proxy_results is None:
@@ -131,6 +147,18 @@ def main():
         args.proxy_results = PROXY_RESULTS_DIR
 
     os.makedirs(args.output_dir, exist_ok=True)
+    log_path = setup_logging(
+        level=args.log_level,
+        log_dir=args.output_dir,
+        log_file=args.log_file or "crawler.log",
+    )
+    if log_path:
+        logger.info("log file: %s", log_path)
+
+    if args.proxy:
+        logger.info("proxy enabled mode=%s dir=%s", args.proxy_mode, args.proxy_results)
+    else:
+        logger.info("direct connection (use --proxy for 429 fallback)")
 
     runners = {
         "search": lambda: run_search(args),
@@ -142,23 +170,20 @@ def main():
         "social": lambda: run_social(args),
         "discover": lambda: run_discover(args),
         "all": lambda: run_all(args),
+        "verify": lambda: run_verify(args),
     }
-
-    if args.proxy:
-        print(f"[*] Proxy enabled (mode={args.proxy_mode}) → {args.proxy_results}\n")
-    else:
-        print("[*] Direct connection (add --proxy for 429 fallback)\n")
 
     try:
         asyncio.run(runners[args.command]())
     except KeyboardInterrupt:
-        print("\n[!] Interrupted.")
+        logger.warning("interrupted")
         sys.exit(1)
     except FileNotFoundError as e:
-        print(f"[!] {e}")
+        logger.error("%s", e)
         sys.exit(1)
 
-    print_summary(args.output_dir)
+    if args.command != "verify":
+        print_summary(args.output_dir)
 
 
 if __name__ == "__main__":

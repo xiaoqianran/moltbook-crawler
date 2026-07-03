@@ -1,4 +1,4 @@
-"""Base async crawler with proxy-hunter integration."""
+"""Base async crawler with logging, reports, and proxy integration."""
 
 from __future__ import annotations
 
@@ -7,15 +7,18 @@ import os
 import signal
 import time
 from abc import ABC, abstractmethod
-from pathlib import Path
 
 import aiohttp
 
 from . import config
 from .failure_log import FailureLog
 from .http_client import HttpClient
+from .logging_config import get_logger
 from .proxy_pool import DEFAULT_RESULTS_DIR, load_pool_from_results
+from .run_report import CrawlReport
 from .storage import JsonlStore
+
+logger = get_logger("crawler")
 
 
 class AsyncCrawler(ABC):
@@ -36,6 +39,7 @@ class AsyncCrawler(ABC):
         self.use_proxy = config.USE_PROXY if use_proxy is None else use_proxy
         self.proxy_results_dir = proxy_results_dir or str(DEFAULT_RESULTS_DIR)
         self.proxy_mode = proxy_mode or ("fallback" if self.use_proxy else "off")
+        self._logger = get_logger(self.__class__.__name__)
 
         if self.use_proxy:
             self.max_concurrent = max_concurrent or config.PROXY_MAX_CONCURRENT
@@ -51,6 +55,7 @@ class AsyncCrawler(ABC):
         self.proxy_pool = None
         self._shutdown = False
         self._start_time = 0.0
+        self._report: CrawlReport | None = None
 
     async def __aenter__(self):
         await self.setup()
@@ -62,19 +67,28 @@ class AsyncCrawler(ABC):
     async def setup(self):
         os.makedirs(self.data_dir, exist_ok=True)
         self._start_time = time.time()
+        self._report = CrawlReport(
+            crawler=self.__class__.__name__,
+            started_at=time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+            mode=f"proxy/{self.proxy_mode}" if self.use_proxy else "direct",
+        )
 
         if self.use_proxy:
-            print(f"[*] Proxy mode: {self.proxy_mode}")
+            self._logger.info("proxy mode=%s results=%s", self.proxy_mode, self.proxy_results_dir)
             self.proxy_pool = load_pool_from_results(
                 self.proxy_results_dir,
                 top_n_sources=config.PROXY_TOP_SOURCES,
                 max_proxies=config.PROXY_MAX_POOL,
             )
             stats = self.proxy_pool.stats()
-            print(
-                f"[*] Proxy pool ({self.proxy_mode}): "
-                f"{stats['alive']}/{stats['total']} from {stats['sources']} sources"
+            self._logger.info(
+                "proxy pool alive=%s total=%s sources=%s",
+                stats["alive"],
+                stats["total"],
+                stats["sources"],
             )
+        else:
+            self._logger.info("connection=direct concurrency=%s delay=%s", self.max_concurrent, self.delay)
 
         timeout = aiohttp.ClientTimeout(total=config.REQUEST_TIMEOUT)
         self.session = aiohttp.ClientSession(headers=config.HEADERS, timeout=timeout)
@@ -102,7 +116,7 @@ class AsyncCrawler(ABC):
             self.http = None
 
     def _handle_shutdown(self):
-        print("\n[!] Shutdown requested, finishing current tasks...")
+        self._logger.warning("shutdown requested")
         self._shutdown = True
 
     async def fetch_json(self, url: str, params: dict | None = None) -> dict | None:
@@ -116,28 +130,57 @@ class AsyncCrawler(ABC):
     async def save_records(self, filepath: str, records: list[dict]) -> None:
         await self.store.append_many(filepath, records)
 
-    def print_stats(self):
-        if not self.http:
-            return
+    def _emit_stats(self) -> CrawlReport | None:
+        if not self.http or not self._report:
+            return None
+
         elapsed = time.time() - self._start_time
-        print("\n--- Crawl Stats ---")
-        print(f"  Requests:  {self.http.request_count}")
-        print(f"  Errors:    {self.http.error_count}")
-        print(f"  Time:      {elapsed:.1f}s")
-        print(f"  RPS:       {self.http.elapsed_rps(self._start_time):.1f}")
-        print(f"  Mode:      {'proxy/' + self.proxy_mode if self.use_proxy else 'direct'}")
-        self.failure_log.print_session_summary()
-        if self.use_proxy:
-            print(f"  Direct OK:   {self.http.direct_hits}")
-            print(f"  Via proxy:   {self.http.proxy_hits}")
-            if self.http.proxy_rotations:
-                print(f"  Proxy rotations: {self.http.proxy_rotations}")
+        r = self._report
+        r.elapsed_s = round(elapsed, 2)
+        r.requests = self.http.request_count
+        r.errors = self.http.error_count
+        r.failures = self.failure_log.session_count()
+        r.rps = round(self.http.elapsed_rps(self._start_time), 2)
+        r.proxy_direct_hits = self.http.direct_hits
+        r.proxy_hits = self.http.proxy_hits
+        r.proxy_rotations = self.http.proxy_rotations
+        r.finish(ok=r.failures == 0 or r.requests > 0)
+
+        self._logger.info(
+            "done requests=%s errors=%s failures=%s rps=%s elapsed=%ss mode=%s",
+            r.requests,
+            r.errors,
+            r.failures,
+            r.rps,
+            r.elapsed_s,
+            r.mode,
+        )
+
+        if r.failures:
+            for e in self.failure_log.recent_entries(3):
+                self._logger.warning(
+                    "recent failure status=%s url=%s",
+                    e.get("status") or e.get("error"),
+                    (e.get("url") or "")[:80],
+                )
+
+        path = r.save(self.data_dir)
+        self._logger.info("report saved %s", path)
+        return r
 
     @abstractmethod
     async def crawl(self):
         ...
 
     async def run(self):
-        async with self:
-            await self.crawl()
-            self.print_stats()
+        self._logger.info("crawl start limit=%s data_dir=%s", self.limit, self.data_dir)
+        try:
+            async with self:
+                await self.crawl()
+        except Exception:
+            self._logger.exception("crawl failed")
+            if self._report:
+                self._report.finish(ok=False)
+                self._report.save(self.data_dir)
+            raise
+        self._emit_stats()

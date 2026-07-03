@@ -11,7 +11,10 @@ import aiohttp
 
 from . import config
 from .failure_log import FailureLog
+from .logging_config import get_logger
 from .proxy_pool import ProxyPool
+
+logger = get_logger("http")
 
 ProxyMode = Literal["off", "always", "fallback"]
 
@@ -173,6 +176,7 @@ class HttpClient:
                     last_status = resp.status
                     if resp.status == 200:
                         data = await resp.json()
+                        logger.debug("OK %s status=200 proxy=%s", url, bool(proxy))
                         if return_meta:
                             return data, resp.status, None, proxy
                         return data

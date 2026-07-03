@@ -1,6 +1,6 @@
 [project]
 name = "moltbook-crawler"
-version = "0.3.0"
+version = "0.4.0"
 description = "Async crawler for moltbook.com with bundled proxy-hunter submodule"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -10,9 +10,29 @@ dependencies = [
     "tqdm>=4.67.3",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["crawlers"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "integration: live network tests (pytest -m integration)",
+]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
