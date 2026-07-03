@@ -78,6 +78,7 @@ uv run python main.py merge-legacy
 | **爬取失败明细** | `data/crawl_failures.jsonl` 每条失败 HTTP 请求 |
 | **翻译审计日志** | `data/translate_operations.jsonl` 每条翻译（成功/失败/跳过、耗时、重试次数） |
 | **运行报告** | `data/.state/report_*.json` 每爬虫统计（含 translate_session） |
+| **统一仪表盘** | `data/dashboard.json` 汇总 crawl + translate + verify + 数据集 |
 | **健康检查** | `main.py verify` → `verify_report.json`（含 post_db、translate_api 冒烟） |
 | **单元测试** | `pytest` 覆盖 translate/translate_log/verify/post_db 等 |
 | **集成测试** | `pytest -m integration` live API |
@@ -98,7 +99,15 @@ cat data/translate_operations.jsonl | python3 -m json.tool
 
 # 4. 单元测试验证翻译逻辑（mock API，不耗额度）
 uv run pytest tests/test_translate.py tests/test_translate_log.py tests/test_verify_translate.py -v
+
+# 5. 统一 metrics 仪表盘
+uv run python main.py dashboard
+cat data/dashboard.json | python3 -m json.tool
 ```
+
+`dashboard.json` 结构：`health`（总健康）、`posts`（双语覆盖）、`crawl`（各爬虫报告）、`translate`（翻译耗时/成功率）、`datasets`（jsonl 行数）、`verify`（最近一次检查结果）。
+
+每次爬取/翻译结束后会自动刷新；也可手动 `main.py dashboard`。
 
 `translate_operations.jsonl` 字段：`post_id`、`status`（success/failed/skipped）、`latency_ms`、`attempts`、`error`。
 

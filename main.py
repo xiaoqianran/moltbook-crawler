@@ -131,8 +131,24 @@ async def run_verify(args):
         level = logger.info if c.ok else logger.error
         level("  [%s] %s — %s", "PASS" if c.ok else "FAIL", c.name, c.detail)
     logger.info("verify_report → %s/verify_report.json ok=%s", args.output_dir, report.ok)
+    _refresh_dashboard(args.output_dir)
     if not report.ok:
         sys.exit(2)
+
+
+async def run_dashboard(args):
+    from crawlers.dashboard import save_dashboard
+    _banner("DASHBOARD")
+    path = save_dashboard(args.output_dir)
+    logger.info("dashboard → %s", path)
+
+
+def _refresh_dashboard(data_dir: str) -> None:
+    from crawlers.dashboard import save_dashboard
+    try:
+        save_dashboard(data_dir)
+    except Exception:
+        logger.exception("dashboard refresh failed")
 
 
 def print_summary(data_dir: str):
@@ -193,7 +209,7 @@ def main():
         "command",
         choices=[
             "all", "discover", "search", "submolts", "feeds", "posts", "comments",
-            "agents", "social", "verify", "translate", "merge-legacy",
+            "agents", "social", "verify", "translate", "merge-legacy", "dashboard",
         ],
     )
     parser.add_argument("--limit", type=int, default=None)
@@ -244,6 +260,7 @@ def main():
         "verify": lambda: run_verify(args),
         "translate": lambda: run_translate(args),
         "merge-legacy": lambda: run_merge_legacy(args),
+        "dashboard": lambda: run_dashboard(args),
     }
 
     try:
@@ -255,8 +272,15 @@ def main():
         logger.error("%s", e)
         sys.exit(1)
 
-    if args.command != "verify":
+    if args.command not in ("verify", "dashboard"):
+        _refresh_dashboard(args.output_dir)
+
+    if args.command not in ("verify", "dashboard"):
         print_summary(args.output_dir)
+    elif args.command == "dashboard":
+        dash_path = os.path.join(args.output_dir, "dashboard.json")
+        if os.path.isfile(dash_path):
+            logger.info("dashboard ready %s", dash_path)
 
 
 if __name__ == "__main__":

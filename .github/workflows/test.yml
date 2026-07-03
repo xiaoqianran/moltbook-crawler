@@ -21,8 +21,13 @@ jobs:
       - name: Install deps
         run: uv sync --dev
 
-      - name: Unit tests
+      - name: Unit tests (all)
         run: uv run pytest -m "not integration" -v
+
+      - name: Translate pipeline tests (mock, no API key)
+        run: |
+          uv run pytest tests/test_translate.py tests/test_translate_log.py \
+            tests/test_verify_translate.py tests/test_dashboard.py -v
 
   integration:
     runs-on: ubuntu-latest
@@ -39,8 +44,19 @@ jobs:
       - name: Install deps
         run: uv sync --dev
 
-      - name: Live verify
+      - name: Live verify (translate_api skipped without key)
         run: uv run python main.py verify --output-dir data/ci_verify
+
+      - name: Build metrics dashboard
+        run: uv run python main.py dashboard --output-dir data/ci_verify
 
       - name: Integration pytest
         run: uv run pytest -m integration -v
+
+      - name: Upload dashboard artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: metrics-dashboard
+          path: data/ci_verify/dashboard.json
+          if-no-files-found: warn
