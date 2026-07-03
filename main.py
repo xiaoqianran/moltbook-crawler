@@ -143,6 +143,23 @@ async def run_dashboard(args):
     logger.info("dashboard → %s", path)
 
 
+async def run_export_viewer(args):
+    from crawlers.viewer_export import export_viewer
+    _banner("EXPORT-VIEWER")
+    path = export_viewer(args.output_dir)
+    logger.info("viewer → %s/index.html", path)
+    logger.info("本地预览: cd %s && python3 -m http.server 8765", path)
+
+
+async def run_pipeline(args):
+    """Crawl posts → translate → export Zhihu-style viewer."""
+    await run_posts(args)
+    await run_feeds(args)
+    await run_translate(args)
+    await run_export_viewer(args)
+    _refresh_dashboard(args.output_dir)
+
+
 def _refresh_dashboard(data_dir: str) -> None:
     from crawlers.dashboard import save_dashboard
     try:
@@ -210,6 +227,7 @@ def main():
         choices=[
             "all", "discover", "search", "submolts", "feeds", "posts", "comments",
             "agents", "social", "verify", "translate", "merge-legacy", "dashboard",
+            "export-viewer", "pipeline",
         ],
     )
     parser.add_argument("--limit", type=int, default=None)
@@ -261,6 +279,8 @@ def main():
         "translate": lambda: run_translate(args),
         "merge-legacy": lambda: run_merge_legacy(args),
         "dashboard": lambda: run_dashboard(args),
+        "export-viewer": lambda: run_export_viewer(args),
+        "pipeline": lambda: run_pipeline(args),
     }
 
     try:
@@ -272,10 +292,10 @@ def main():
         logger.error("%s", e)
         sys.exit(1)
 
-    if args.command not in ("verify", "dashboard"):
+    if args.command not in ("verify", "dashboard", "export-viewer"):
         _refresh_dashboard(args.output_dir)
 
-    if args.command not in ("verify", "dashboard"):
+    if args.command not in ("verify", "dashboard", "export-viewer"):
         print_summary(args.output_dir)
     elif args.command == "dashboard":
         dash_path = os.path.join(args.output_dir, "dashboard.json")

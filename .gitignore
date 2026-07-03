@@ -18,6 +18,7 @@ data/crawl_failures.jsonl
 data/translate_operations.jsonl
 data/dashboard.json
 data/ci_verify/
+data/viewer/
 data/logs/
 data/test_run/
 data/log_test/
